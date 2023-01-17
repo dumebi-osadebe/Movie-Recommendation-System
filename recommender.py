@@ -7,19 +7,18 @@ Created on Mon Jan  9 15:11:14 2023
 """
 
 import pandas as pd
+import tensorflow as tf
 from tensorflow.keras import models, layers, utils, backend
 import matplotlib.pyplot as plt
 import numpy as np
 
-# import the preprocessing and text libraries from scikitlearn
+# import the pr eprocessing and text libraries from scikitlearn
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import train_test_split
-
-from sklearn.decomposition import PCA
-from sklearn.cluster import KMeans
-from sklearn.decomposition import PCA
 from sklearn import metrics
+from sklearn.metrics import mean_squared_error
 
+from math import sqrt
 # string manipulation libraries
 import re
 import string
@@ -53,7 +52,7 @@ df_users.drop(columns = ["timestamp"], inplace= True)
 # match movies only with existing user ratings
 df_users = df_users.merge(df_movies[["movieId", "title"]], how = "left")
 
-# Clean
+# set the index of the movie dataframe to be the movieIds to account for nonconsistent integer usage for movieIds
 df_movies = df_movies.set_index("movieId")
 
 #make columns of the genres using set() to identify the unique genres
@@ -68,7 +67,7 @@ for col in columns:
 
 df_movies.drop(columns = ["genres"], inplace = True)
 
-# create User Product matrix -------
+# create User Product matrix 
 tmp = df_users.copy()
 
 df_users = tmp.pivot_table(index = "userId", columns = "movieId", values = "rating")
@@ -92,7 +91,7 @@ df_train = df_users.loc[:, :split-1]
 df_test = df_users.loc[:, split:]
 
 #select a user to try out our model on and name a dataframe specifically for that user
-i =  567
+i =  1
 train = df_train.iloc[i].to_frame(name = "y")
 test = df_test.iloc[i].to_frame(name = "y")
 
@@ -105,12 +104,39 @@ usr = train[["y"]].fillna(0).values.T
 # drop these columns and turn dataframe into return them as an ndarray      
 prd = df_movies.drop(columns = ["title"]).values  
 
+#create user feature matrix as user_ft(user, feature) = usr(users, products) x prd(products, features)
+usr_ft = tf.matmul(usr, prd)
+
+# normalize
+weights = usr_ft / tf.reduce_sum(usr_ft, axis=1, keepdims=True)
+
+# create user products matrix as rating(users,products) = weights(users,fatures) x prd.T(features,products)
+pred = tf.matmul(weights, prd.T)
+
+test = test.merge(pd.DataFrame(pred[0], columns=["yhat"]), how="left", left_index=True, right_index=True).reset_index()
+test = test[~test["y"].isna()]
 
 
+def rmse(y_test, pred):
+    score = []
+    for movie in y_test:
+        rms = sqrt(mean_squared_error(y_test, pred))
+        score.append(rms)
+    return np.means(score)
 
+print("--- user", i, "---")
+top = 5
+y_test = test.sort_values("y", ascending=False)["movieId"].values[:top]
+print("y_test:", y_test)
 
+predicted = test.sort_values("yhat", ascending=False)["movieId"].values[:top]
+print("predicted:", predicted)
 
-
+true_positive = len(list(set(y_test) & set(predicted)))
+print("true positive:", true_positive, "("+str(round(true_positive/top*100,1))+"%)")
+print("accuracy:", str(round(metrics.accuracy_score(y_test,predicted)*100,1))+"%")
+#print("mrr:", mean_reciprocal_rank(y_test, pred))
+print("rmse:", rmse(y_test, pred))
 
 
 
